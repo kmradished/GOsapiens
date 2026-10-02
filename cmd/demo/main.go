@@ -19,4 +19,5 @@ func main() {
 	}
 
 	printCards(currentID, cards)
+	runLikesDemo(profiles)
 }
