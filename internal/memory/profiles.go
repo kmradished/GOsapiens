@@ -1,4 +1,4 @@
-//Package memory provides in-memory data sources for local runs and tests
+// Package memory provides in-memory data sources for local runs and tests
 package memory
 
 import (
@@ -18,10 +18,10 @@ type Profiles struct {
 	order []domain.UserID
 }
 
-//NewProfiles creates an in-memory profile source from seed data
+// NewProfiles creates an in-memory profile source from seed data
 func NewProfiles(seed []domain.Profile) *Profiles {
 	profiles := &Profiles{
-	  // order to save order, items for fast search of matchng UserID and Profile
+		// order to save order, items for fast search of matchng UserID and Profile
 		items: make(map[domain.UserID]domain.Profile, len(seed)),
 		order: make([]domain.UserID, 0, len(seed)),
 	}
@@ -37,7 +37,7 @@ func NewProfiles(seed []domain.Profile) *Profiles {
 	return profiles
 }
 
-//Get returns an isolated copy of a profile by ID
+// Get returns an isolated copy of a profile by ID
 func (p *Profiles) Get(id domain.UserID) (domain.Profile, error) {
 	profile, exists := p.items[id]
 	if !exists {
@@ -47,7 +47,7 @@ func (p *Profiles) Get(id domain.UserID) (domain.Profile, error) {
 	return cloneProfile(profile), nil
 }
 
-//List returns isolated profile copies in insertion order
+// List returns isolated profile copies in insertion order
 func (p *Profiles) List() ([]domain.Profile, error) {
 	result := make([]domain.Profile, 0, len(p.order))
 	for _, id := range p.order {
