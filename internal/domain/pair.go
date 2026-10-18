@@ -34,3 +34,10 @@ type PairState struct {
 	LeftLiked  bool
 	RightLiked bool
 }
+
+type LikeDecision struct {
+	State      PairState
+	Changed    bool
+	Matched    bool
+	MatchedNow bool
+}
