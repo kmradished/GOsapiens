@@ -116,3 +116,14 @@ go run ./cmd/matching-demo
 ```bash
 go test ./...
 ```
+
+## ЛР2: допуск Like - Полина
+
+Вызывайте `likes.Service.Check(actorID, targetID)` для проверки допуска:
+лайк себе, отсутствующий или неактивный профиль и блокировка в любую сторону
+возвращают отказ. Повторный Like проходит без проверки `HasReaction`;
+успешный no-op без новой записи определяет application-слой.
+Отсутствующий профиль обозначается `domain.ErrProfileNotFound`,
+причины технических ошибок доступны через `errors.Is`
+
+Проверка: `go test ./internal/likes ./internal/memory`
