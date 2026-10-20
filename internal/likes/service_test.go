@@ -2,10 +2,10 @@ package likes
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/kmradished/GOsapiens/internal/domain"
-	"github.com/kmradished/GOsapiens/internal/memory"
 )
 
 // тестовое хранилище профилей
@@ -22,7 +22,7 @@ func (s *profileStub) Get(id domain.UserID) (domain.Profile, error) {
 
 	profile, found := s.profiles[id]
 	if !found {
-		return domain.Profile{}, memory.ErrProfileNotFound
+		return domain.Profile{}, domain.ErrProfileNotFound
 	}
 
 	return profile, nil
@@ -34,6 +34,7 @@ type interactionStub struct {
 	alreadyReacted bool
 	blockErr       error
 	reactionErr    error
+	reactionCalls  int
 }
 
 func (s *interactionStub) IsBlocked(
@@ -45,6 +46,7 @@ func (s *interactionStub) IsBlocked(
 func (s *interactionStub) HasReaction(
 	userID, candidateID domain.UserID,
 ) (bool, error) {
+	s.reactionCalls++
 	return s.alreadyReacted, s.reactionErr
 }
 
@@ -160,18 +162,21 @@ func TestServiceBlockSourceError(t *testing.T) {
 	}
 }
 
-// ошибка проверки реакции
-func TestServiceReactionSourceError(t *testing.T) {
+// прошлые реакции не проверяются
+func TestServiceIgnoresReactionSourceError(t *testing.T) {
 	sourceErr := errors.New("реакции недоступны")
 	interactions := &interactionStub{
 		reactionErr: sourceErr,
 	}
 	service := NewService(activeProfiles(), interactions)
 
-	_, err := service.Check("u1", "u2")
+	result, err := service.Check("u1", "u2")
 
-	if !errors.Is(err, sourceErr) {
-		t.Fatalf("ожидалась ошибка хранилища, получено: %v", err)
+	if err != nil || result != (Result{Allowed: true}) {
+		t.Fatalf("ожидалось разрешение, получено: %+v, %v", result, err)
+	}
+	if interactions.reactionCalls != 0 {
+		t.Fatal("HasReaction не должен вызываться")
 	}
 }
 
@@ -252,7 +257,7 @@ func TestServiceBlocked(t *testing.T) {
 	}
 }
 
-// повторная реакция запрещена
+// повторный лайк разрешён
 func TestServiceAlreadyReacted(t *testing.T) {
 	interactions := &interactionStub{
 		alreadyReacted: true,
@@ -265,7 +270,50 @@ func TestServiceAlreadyReacted(t *testing.T) {
 		t.Fatalf("неожиданная ошибка: %v", err)
 	}
 
-	if result.Allowed || result.Reason != ReasonAlreadyReacted {
-		t.Fatalf("ожидался отказ за повторную реакцию, получено: %+v", result)
+	if !result.Allowed || result.Reason != ReasonNone {
+		t.Fatalf("ожидалось разрешение повторного Like, получено: %+v", result)
+	}
+	if interactions.reactionCalls != 0 {
+		t.Fatal("HasReaction не должен вызываться")
+	}
+}
+
+func TestServiceWrappedProfileNotFound(t *testing.T) {
+	for _, id := range []domain.UserID{"u1", "u2"} {
+		t.Run(string(id), func(t *testing.T) {
+			profiles := activeProfiles()
+			profiles.errID = id
+			profiles.getErr = fmt.Errorf("profile source: %w", domain.ErrProfileNotFound)
+			result, err := NewService(profiles, &interactionStub{}).Check("u1", "u2")
+			if err != nil || result != (Result{Reason: ReasonProfileNotFound}) {
+				t.Fatalf("ожидался отказ за отсутствующий профиль, получено: %+v, %v", result, err)
+			}
+		})
+	}
+}
+
+func TestServiceWrappedTechnicalErrors(t *testing.T) {
+	for _, stage := range []string{"actor", "target", "blocks"} {
+		t.Run(stage, func(t *testing.T) {
+			cause := errors.New("source unavailable")
+			wrapped := fmt.Errorf("adapter: %w", cause)
+			profiles := activeProfiles()
+			interactions := &interactionStub{}
+			switch stage {
+			case "actor":
+				profiles.errID, profiles.getErr = "u1", wrapped
+			case "target":
+				profiles.errID, profiles.getErr = "u2", wrapped
+			case "blocks":
+				interactions.blockErr = wrapped
+			}
+			result, err := NewService(profiles, interactions).Check("u1", "u2")
+			if !errors.Is(err, cause) || !errors.Is(err, wrapped) {
+				t.Fatalf("причина ошибки потеряна: %v", err)
+			}
+			if result != (Result{}) {
+				t.Fatalf("при технической ошибке ожидался нулевой результат: %+v", result)
+			}
+		})
 	}
 }
