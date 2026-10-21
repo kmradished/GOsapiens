@@ -14,6 +14,11 @@
 - `internal/discovery/available` — подбор кандидатов с ограничениями
 - `internal/likes` — проверка допустимости лайка
 - `internal/matching` — создание мэтча
+- `internal/application` — общий сервис обработки лайка
+- `internal/memory` — хранилища профилей, взаимодействий и состояния пар в памяти
+- `internal/jsonpairs` — хранение состояния пар в JSON-байтах
+- `internal/storecontract` — общие контрактные тесты хранилищ пар
+- `internal/integration` — сквозной тест обработки лайков
 - `cmd/demo` — демонстрационный запуск контрактов A и C
 - `cmd/available-demo` — демонстрационный запуск контракта B
 - `cmd/matching-demo` — демонстрационный запуск контракта D
@@ -22,8 +27,11 @@
 
 Проверяет возможность поставить лайк кандидату.
 Возвращает разрешение или причину отказа: лайк себе, отсутствующий
-или неактивный профиль, блокировка, предыдущая реакция.
+или неактивный профиль, блокировка.
 Ошибка хранилища возвращается отдельно.
+
+Повторный Like допускается; отсутствие изменений и пропуск `Save`
+определяет application-слой.
 
 Реализация: `internal/likes`, хранилище: `internal/memory/like_state.go`.
 
@@ -114,6 +122,42 @@ DataSource и in-memory хранилище Interactions.
 отказ допуска, ошибки `Load` и `Save`, а также успешный повтор после устранения
 ошибки сохранения. Запуск: `go test ./internal/application`
 
+Чистая функция `matching.DecideLike` вычисляет новое состояние пары и признаки
+`Changed`, `Matched`, `MatchedNow`. Ответный Like создаёт взаимность с
+`MatchedNow=true`, а повторы возвращают `Changed=false` и `MatchedNow=false`.
+Функция не обращается к хранилищам и не изменяет входное состояние.
+
+## Хранение состояния пары — ЛР2
+
+Исполнитель: @kmradished. Задача: #14.
+
+Реализованы два адаптера `application.PairStore`:
+
+- `memory.PairStore` хранит состояния в map по ключу `domain.PairKey`;
+- `jsonpairs.PairStore` хранит JSON-байты: `Save` выполняет `json.Marshal`,
+  `Load` — `json.Unmarshal`.
+
+Отсутствующая пара возвращает `found=false` без ошибки. Повторный `Save`
+полностью заменяет состояние. Разные пары независимы. Невалидный ключ
+возвращает `domain.ErrInvalidPair` без изменения сохранённых данных.
+
+Оба адаптера проходят общий набор тестов `internal/storecontract.Check`.
+
+## Сквозной тест — ЛР2
+
+`TestScenario` в `internal/integration/scenario_test.go` объединяет реальные
+`application.Service`, `likes.Service`, `matching.DecideLike` и memory-хранилища.
+
+Проверяется последовательность:
+
+- первый Like сохраняет состояние;
+- повторный Like не вызывает новый `Save`;
+- ответный Like создаёт взаимность с `MatchedNow=true`;
+- повтор после взаимности не вызывает новый `Save` и возвращает `MatchedNow=false`.
+
+После каждого шага проверяются сохранённое состояние пары
+и количество вызовов `Save`: 1, 1, 2, 2.
+
 ## Запуск
 
 Контракты A и C:
@@ -137,7 +181,14 @@ go run ./cmd/matching-demo
 ## Тесты
 
 ```bash
-go test ./...
+go test -count=1 ./...
+go vet ./...
+```
+
+Отдельный запуск сквозного теста:
+
+```bash
+go test -count=1 ./internal/integration -run TestScenario -v
 ```
 
 ## ЛР2: допуск Like - Полина
