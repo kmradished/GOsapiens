@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/kmradished/GOsapiens/internal/domain"
-	"github.com/kmradished/GOsapiens/internal/memory"
 )
 
 // получение профиля
@@ -13,10 +12,9 @@ type ProfileSource interface {
 	Get(id domain.UserID) (domain.Profile, error)
 }
 
-// проверка блокировок и реакций
+// блокировка в любую сторону
 type InteractionSource interface {
 	IsBlocked(userID, candidateID domain.UserID) (bool, error)
-	HasReaction(userID, candidateID domain.UserID) (bool, error)
 }
 
 // сервис проверки лайка
@@ -44,7 +42,7 @@ func (s *Service) Check(userID, candidateID domain.UserID) (Result, error) {
 
 	user, err := s.profiles.Get(userID)
 	if err != nil {
-		if errors.Is(err, memory.ErrProfileNotFound) {
+		if errors.Is(err, domain.ErrProfileNotFound) {
 			return Result{Reason: ReasonProfileNotFound}, nil
 		}
 
@@ -53,7 +51,7 @@ func (s *Service) Check(userID, candidateID domain.UserID) (Result, error) {
 
 	candidate, err := s.profiles.Get(candidateID)
 	if err != nil {
-		if errors.Is(err, memory.ErrProfileNotFound) {
+		if errors.Is(err, domain.ErrProfileNotFound) {
 			return Result{Reason: ReasonProfileNotFound}, nil
 		}
 
@@ -70,14 +68,6 @@ func (s *Service) Check(userID, candidateID domain.UserID) (Result, error) {
 		return Result{}, fmt.Errorf("проверка блокировки: %w", err)
 	}
 
-	if blocked {
-		return Check(user, candidate, true, false), nil
-	}
-
-	alreadyReacted, err := s.interactions.HasReaction(userID, candidateID)
-	if err != nil {
-		return Result{}, fmt.Errorf("проверка прошлой реакции: %w", err)
-	}
-
-	return Check(user, candidate, blocked, alreadyReacted), nil
+	// повторный лайк обрабатывается в application
+	return Check(user, candidate, blocked, false), nil
 }

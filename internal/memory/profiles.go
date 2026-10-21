@@ -2,15 +2,14 @@
 package memory
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 
 	"github.com/kmradished/GOsapiens/internal/domain"
 )
 
-// ErrProfileNotFound indicates that a profile does not exist in the source
-var ErrProfileNotFound = errors.New("profile not found")
+// старое имя ошибки для совместимости
+var ErrProfileNotFound = domain.ErrProfileNotFound
 
 // Profiles stores profiles in memory and preserves their insertion order
 type Profiles struct {
@@ -41,7 +40,7 @@ func NewProfiles(seed []domain.Profile) *Profiles {
 func (p *Profiles) Get(id domain.UserID) (domain.Profile, error) {
 	profile, exists := p.items[id]
 	if !exists {
-		return domain.Profile{}, fmt.Errorf("profile %q: %w", id, ErrProfileNotFound)
+		return domain.Profile{}, fmt.Errorf("profile %q: %w", id, domain.ErrProfileNotFound)
 	}
 
 	return cloneProfile(profile), nil
