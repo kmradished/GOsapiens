@@ -34,7 +34,7 @@ type errorResponse struct {
 }
 
 // NewGetDiscoveryHandler используется  для создания обработчика HTTP-запросов для получения списка кандидатов для пользователя в сервисе "discovery"
-func NewGetDiscoveryHandler(discover func(domain.UserID, application.DiscoveryQuery) ([]interests.AnonymousCard, error),currentUser func(*http.Request) (domain.UserID, bool),) http.HandlerFunc {
+func NewGetDiscoveryHandler(discover func(domain.UserID, application.DiscoveryQuery) ([]interests.AnonymousCard, error), currentUser func(*http.Request) (domain.UserID, bool)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actorID, ok := currentUser(r)
 		if !ok || actorID == "" {
