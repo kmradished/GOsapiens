@@ -37,6 +37,10 @@ func NewPutLikeHandler(
 			return
 		}
 
+		if !validateEmptyInput(w, r) {
+			return
+		}
+
 		decision, err := like(r.Context(), actorID, targetID)
 		if err != nil {
 			writePutLikeError(w, err, isDependencyError)

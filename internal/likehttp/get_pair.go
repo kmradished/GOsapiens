@@ -37,6 +37,10 @@ func NewGetPairHandler(
 			return
 		}
 
+		if !validateEmptyInput(w, r) {
+			return
+		}
+
 		matched, err := readPair(actorID, targetID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal_error",
