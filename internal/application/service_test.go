@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -18,7 +19,7 @@ type fakeLikeChecker struct {
 	steps  *[]string
 }
 
-func (f *fakeLikeChecker) Check(actor, target domain.UserID) (likes.Result, error) {
+func (f *fakeLikeChecker) Check(_ context.Context, actor, target domain.UserID) (likes.Result, error) {
 	f.calls++
 	f.actor, f.target = actor, target
 	if f.steps != nil {

@@ -1,6 +1,7 @@
 package likes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -15,7 +16,7 @@ type profileStub struct {
 	errID    domain.UserID
 }
 
-func (s *profileStub) Get(id domain.UserID) (domain.Profile, error) {
+func (s *profileStub) GetContext(_ context.Context, id domain.UserID) (domain.Profile, error) {
 	if s.getErr != nil && (s.errID == "" || s.errID == id) {
 		return domain.Profile{}, s.getErr
 	}
@@ -64,7 +65,7 @@ func activeProfiles() *profileStub {
 func TestServiceAllowed(t *testing.T) {
 	service := NewService(activeProfiles(), &interactionStub{})
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -84,7 +85,7 @@ func TestServiceUserNotFound(t *testing.T) {
 	}
 	service := NewService(profiles, &interactionStub{})
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil {
 		t.Fatalf("ожидался обычный отказ, получена ошибка: %v", err)
@@ -104,7 +105,7 @@ func TestServiceCandidateNotFound(t *testing.T) {
 	}
 	service := NewService(profiles, &interactionStub{})
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil {
 		t.Fatalf("ожидался обычный отказ, получена ошибка: %v", err)
@@ -124,7 +125,7 @@ func TestServiceUserSourceError(t *testing.T) {
 
 	service := NewService(profiles, &interactionStub{})
 
-	_, err := service.Check("u1", "u2")
+	_, err := service.Check(context.Background(), "u1", "u2")
 
 	if !errors.Is(err, sourceErr) {
 		t.Fatalf("ожидалась ошибка хранилища, получено: %v", err)
@@ -140,7 +141,7 @@ func TestServiceCandidateSourceError(t *testing.T) {
 
 	service := NewService(profiles, &interactionStub{})
 
-	_, err := service.Check("u1", "u2")
+	_, err := service.Check(context.Background(), "u1", "u2")
 
 	if !errors.Is(err, sourceErr) {
 		t.Fatalf("ожидалась ошибка хранилища, получено: %v", err)
@@ -155,7 +156,7 @@ func TestServiceBlockSourceError(t *testing.T) {
 	}
 	service := NewService(activeProfiles(), interactions)
 
-	_, err := service.Check("u1", "u2")
+	_, err := service.Check(context.Background(), "u1", "u2")
 
 	if !errors.Is(err, sourceErr) {
 		t.Fatalf("ожидалась ошибка хранилища, получено: %v", err)
@@ -170,7 +171,7 @@ func TestServiceIgnoresReactionSourceError(t *testing.T) {
 	}
 	service := NewService(activeProfiles(), interactions)
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil || result != (Result{Allowed: true}) {
 		t.Fatalf("ожидалось разрешение, получено: %+v, %v", result, err)
@@ -187,7 +188,7 @@ func TestServiceSelfLike(t *testing.T) {
 	}
 	service := NewService(profiles, &interactionStub{})
 
-	result, err := service.Check("u1", "u1")
+	result, err := service.Check(context.Background(), "u1", "u1")
 
 	if err != nil {
 		t.Fatalf("хранилище не должно вызываться: %v", err)
@@ -207,7 +208,7 @@ func TestServiceInactiveUser(t *testing.T) {
 	}
 	service := NewService(profiles, interactions)
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil {
 		t.Fatalf("блокировки не должны проверяться: %v", err)
@@ -227,7 +228,7 @@ func TestServiceInactiveCandidate(t *testing.T) {
 	}
 	service := NewService(profiles, interactions)
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil {
 		t.Fatalf("блокировки не должны проверяться: %v", err)
@@ -246,7 +247,7 @@ func TestServiceBlocked(t *testing.T) {
 	}
 	service := NewService(activeProfiles(), interactions)
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil {
 		t.Fatalf("реакции не должны проверяться: %v", err)
@@ -264,7 +265,7 @@ func TestServiceAlreadyReacted(t *testing.T) {
 	}
 	service := NewService(activeProfiles(), interactions)
 
-	result, err := service.Check("u1", "u2")
+	result, err := service.Check(context.Background(), "u1", "u2")
 
 	if err != nil {
 		t.Fatalf("неожиданная ошибка: %v", err)
@@ -284,7 +285,7 @@ func TestServiceWrappedProfileNotFound(t *testing.T) {
 			profiles := activeProfiles()
 			profiles.errID = id
 			profiles.getErr = fmt.Errorf("profile source: %w", domain.ErrProfileNotFound)
-			result, err := NewService(profiles, &interactionStub{}).Check("u1", "u2")
+			result, err := NewService(profiles, &interactionStub{}).Check(context.Background(), "u1", "u2")
 			if err != nil || result != (Result{Reason: ReasonProfileNotFound}) {
 				t.Fatalf("ожидался отказ за отсутствующий профиль, получено: %+v, %v", result, err)
 			}
@@ -307,7 +308,7 @@ func TestServiceWrappedTechnicalErrors(t *testing.T) {
 			case "blocks":
 				interactions.blockErr = wrapped
 			}
-			result, err := NewService(profiles, interactions).Check("u1", "u2")
+			result, err := NewService(profiles, interactions).Check(context.Background(), "u1", "u2")
 			if !errors.Is(err, cause) || !errors.Is(err, wrapped) {
 				t.Fatalf("причина ошибки потеряна: %v", err)
 			}

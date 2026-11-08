@@ -1,6 +1,7 @@
 package likes_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kmradished/GOsapiens/internal/application"
@@ -52,7 +53,7 @@ func TestServiceWithMemorySources(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			service := likes.NewService(profiles, memory.NewLikeState(tt.blocks, tt.reactions))
 			for attempt := 0; attempt < 2; attempt++ {
-				got, err := service.Check("u1", tt.target)
+				got, err := service.Check(context.Background(), "u1", tt.target)
 				if err != nil || got != tt.want {
 					t.Fatalf("Check attempt %d = %+v, %v; want %+v", attempt+1, got, err, tt.want)
 				}
@@ -73,7 +74,7 @@ func TestServiceNeedsOnlyBlockSource(t *testing.T) {
 		{ID: "u1", Active: true},
 		{ID: "u2", Active: true},
 	})
-	got, err := likes.NewService(profiles, blockOnlySource{}).Check("u1", "u2")
+	got, err := likes.NewService(profiles, blockOnlySource{}).Check(context.Background(), "u1", "u2")
 	if err != nil || got != (likes.Result{Allowed: true}) {
 		t.Fatalf("Check = %+v, %v; want allowed", got, err)
 	}

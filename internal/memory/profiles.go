@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -44,6 +45,13 @@ func (p *Profiles) Get(id domain.UserID) (domain.Profile, error) {
 	}
 
 	return cloneProfile(profile), nil
+}
+
+func (p *Profiles) GetContext(ctx context.Context, id domain.UserID) (domain.Profile, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.Profile{}, err
+	}
+	return p.Get(id)
 }
 
 // List returns isolated profile copies in insertion order
