@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -26,7 +27,7 @@ func runLikesDemo(profiles *memory.Profiles) {
 
 // вывод результата
 func printLikeCheck(service *likes.Service, userID, candidateID string) {
-	result, err := service.Check(
+	result, err := service.Check(context.Background(),
 		domain.UserID(userID),
 		domain.UserID(candidateID),
 	)

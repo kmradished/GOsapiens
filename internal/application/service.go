@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/kmradished/GOsapiens/internal/domain"
@@ -32,7 +33,11 @@ func NewService(checker LikeChecker, store PairStore, decide DecideLikeFunc) *Se
 
 // Like проверяет допуск, вычисляет переход состояния пары и сохраняет изменение
 func (s *Service) Like(actorID, targetID domain.UserID) (domain.LikeDecision, error) {
-	check, err := s.checker.Check(actorID, targetID)
+	return s.LikeContext(context.Background(), actorID, targetID)
+}
+
+func (s *Service) LikeContext(ctx context.Context, actorID, targetID domain.UserID) (domain.LikeDecision, error) {
+	check, err := s.checker.Check(ctx, actorID, targetID)
 	if err != nil {
 		return domain.LikeDecision{}, fmt.Errorf("check like: %w", err)
 	}

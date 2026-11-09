@@ -1,6 +1,7 @@
 package likes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -9,7 +10,7 @@ import (
 
 // получение профиля
 type ProfileSource interface {
-	Get(id domain.UserID) (domain.Profile, error)
+	GetContext(ctx context.Context, id domain.UserID) (domain.Profile, error)
 }
 
 // блокировка в любую сторону
@@ -35,12 +36,12 @@ func NewService(
 }
 
 // получение данных и проверка лайка
-func (s *Service) Check(userID, candidateID domain.UserID) (Result, error) {
+func (s *Service) Check(ctx context.Context, userID, candidateID domain.UserID) (Result, error) {
 	if userID == candidateID {
 		return Result{Reason: ReasonSelfLike}, nil
 	}
 
-	user, err := s.profiles.Get(userID)
+	user, err := s.profiles.GetContext(ctx, userID)
 	if err != nil {
 		if errors.Is(err, domain.ErrProfileNotFound) {
 			return Result{Reason: ReasonProfileNotFound}, nil
@@ -49,7 +50,7 @@ func (s *Service) Check(userID, candidateID domain.UserID) (Result, error) {
 		return Result{}, fmt.Errorf("получение пользователя: %w", err)
 	}
 
-	candidate, err := s.profiles.Get(candidateID)
+	candidate, err := s.profiles.GetContext(ctx, candidateID)
 	if err != nil {
 		if errors.Is(err, domain.ErrProfileNotFound) {
 			return Result{Reason: ReasonProfileNotFound}, nil
