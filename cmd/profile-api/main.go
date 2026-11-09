@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kmradished/GOsapiens/internal/domain"
+	"github.com/kmradished/GOsapiens/internal/demodata"
 	"github.com/kmradished/GOsapiens/internal/profileapi"
 )
 
@@ -20,15 +20,7 @@ func main() {
 	if *slowDelay <= 0 || *largeBytes <= 0 {
 		log.Fatal("slow-delay and large-bytes must be positive")
 	}
-	profiles := []domain.Profile{
-		{ID: "u1", Active: true},
-		{ID: "u2", Active: true},
-		{ID: "u3", Active: false},
-		{ID: "u4", Active: true},
-		{ID: "u5", Active: true},
-		{ID: "u6", Active: true},
-	}
-	profileServer := profileapi.NewServer(profiles, *slowDelay, *largeBytes)
+	profileServer := profileapi.NewServer(demodata.Profiles(), *slowDelay, *largeBytes)
 	if err := profileServer.SetMode(*mode); err != nil {
 		log.Fatal(err)
 	}
