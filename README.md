@@ -99,6 +99,40 @@ DataSource и in-memory хранилище Interactions.
 получает профили и ограничения через интерфейсы, а правила отбора находятся в
 отдельной функции.
 
+## Выдача кандидатов — ЛР3
+
+`GET /v1/me/discovery` → `DiscoveryService.Discover` → правила подбора из ЛР1,
+фильтр и пагинация. Автор @klarty-n. Запрос требует `X-Demo-User` и пустое тело
+
+- `interest` необязателен. Точное совпадение среди общих фильмов, музыки или книг
+  Пробелы по краям удаляются, регистр сохраняется, пустое значение даёт `400`
+- `limit` от 1 до 50, по умолчанию 20. `offset` от 0, по умолчанию 0
+  Оба параметра целые. Фильтр и исключения, включая исходящие лайки,
+  применяются до пагинации. Порядок профилей сохраняется
+
+Неизвестные, повторённые и некорректные параметры дают `400 invalid_query`
+Ответ `200` содержит только анонимные карточки. Пустая страница даёт `items: []`
+
+```json
+{"items":[{"candidate_id":"u6","common_movies":["Dune"],"common_music":[],"common_books":[]}],"limit":1,"offset":0}
+```
+
+Ошибки имеют поля `code` и `message`. Коды `invalid_query`, `invalid_body` и
+`invalid_demo_user` дают `400`, `profile_not_found` — `404`, `internal_error` — `500`
+
+Команды для общего сервера с чистым состоянием и четырьмя кандидатами `u6`,
+`u2`, `u5`, `u4` для `u1` с общим фильмом `Dune`. Укажи адрес сервера в `base`
+
+```bash
+base=http://localhost:8080
+curl -i -H 'X-Demo-User: u1' "$base/v1/me/discovery?interest=Dune&limit=2&offset=0" # 200, u6 и u2
+curl -i -H 'X-Demo-User: u1' "$base/v1/me/discovery?interest=Dune&limit=2&offset=2" # 200, u5 и u4
+curl -i -H 'X-Demo-User: u1' "$base/v1/me/discovery?interest=Dune&limit=2&offset=4" # 200, items: []
+curl -i -H 'X-Demo-User: u1' "$base/v1/me/discovery?limit=0" # 400, invalid_query
+curl -i -X PUT -H 'X-Demo-User: u1' "$base/v1/me/likes/u6" # 200, changed: true
+curl -i -H 'X-Demo-User: u1' "$base/v1/me/discovery?interest=Dune&limit=2&offset=0" # 200, u2 и u5
+```
+
 ## Обработка лайка — ЛР2
 
 Исполнитель: @klarty-n
@@ -193,7 +227,7 @@ go test -count=1 ./internal/integration -run TestScenario -v
 
 ## ЛР2: допуск Like - Полина
 
-Вызывайте `likes.Service.Check(actorID, targetID)` для проверки допуска:
+Вызывайте `likes.Service.Check(ctx, actorID, targetID)` для проверки допуска:
 лайк себе, отсутствующий или неактивный профиль и блокировка в любую сторону
 возвращают отказ. Повторный Like проходит без проверки `HasReaction`;
 успешный no-op без новой записи определяет application-слой.
@@ -201,3 +235,42 @@ go test -count=1 ./internal/integration -run TestScenario -v
 причины технических ошибок доступны через `errors.Is`
 
 Проверка: `go test ./internal/likes ./internal/memory`
+
+## ЛР3 Полина: локальный Profile API
+
+Запустите зависимость отдельным процессом:
+
+```bash
+go run ./cmd/profile-api
+```
+
+`GET /profiles/u1` возвращает `{"id":"u1","active":true}`. Оба поля обязательны.
+Активные профили — `u1`, `u2`, `u4`, `u5`, `u6`. Профиль `u3` неактивен
+Неизвестный ID даёт 404
+
+Режим можно задать флагом `-mode` при запуске или переключить на работающем сервере:
+
+```bash
+curl -i -X PUT http://127.0.0.1:8081/_mode/slow
+curl -i http://127.0.0.1:8081/profiles/u1
+curl -i -X PUT http://127.0.0.1:8081/_mode/ok
+```
+
+| Режим | Ответ Profile API |
+| --- | --- |
+| `ok` | Профиль из фикстуры |
+| `missing` | 404 |
+| `error` | 500 |
+| `slow` | Задержка с учётом отмены запроса |
+| `large` | JSON больше лимита клиента |
+
+Флаги сервера по умолчанию — `-addr 127.0.0.1:8081`, `-mode ok`,
+`-slow-delay 2s`, `-large-bytes 8192`
+
+При сборке приложения передайте в `profileapi.NewClient` настроенный base URL,
+общий `*http.Client` с таймаутом `600ms` и лимит `4096` байт
+Этот клиент можно передать в `likes.NewService` как источник профилей
+Передайте в `Check` контекст команды с общим бюджетом `700ms`
+Ошибка `domain.ErrProfileNotFound` превращается в отказ `profile_not_found`
+Технические ошибки распознаются через `errors.Is(err, profileapi.ErrDependency)`
+Причина таймаута или отмены доступна через `errors.Is` и `errors.As`

@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"github.com/kmradished/GOsapiens/internal/domain"
 	"github.com/kmradished/GOsapiens/internal/likes"
 )
@@ -21,6 +22,7 @@ type PairStore interface {
 
 type LikeChecker interface {
 	Check(
+		ctx context.Context,
 		actorID domain.UserID,
 		targetID domain.UserID,
 	) (likes.Result, error)

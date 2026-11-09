@@ -43,10 +43,11 @@ type Service struct {
 	decide DecideLikeFunc
 }
 
+// NewService сохраняет поддержку хранилищ ЛР № 2 с отдельными Load и Save.
 func NewService(checker LikeChecker, store PairStore, decide DecideLikeFunc) *Service {
 	return &Service{
-		check: func(_ context.Context, actorID, targetID domain.UserID) (likes.Result, error) {
-			return checker.Check(actorID, targetID)
+		check: func(ctx context.Context, actorID, targetID domain.UserID) (likes.Result, error) {
+			return checker.Check(ctx, actorID, targetID)
 		},
 		store: store,
 		update: func(
@@ -77,6 +78,7 @@ func NewService(checker LikeChecker, store PairStore, decide DecideLikeFunc) *Se
 	}
 }
 
+// NewServiceWithUpdate подключает проверку с контекстом и атомарное обновление.
 func NewServiceWithUpdate(check checkLikeFunc, store atomicPairStore, decide DecideLikeFunc) *Service {
 	return &Service{
 		check:  check,
@@ -86,10 +88,12 @@ func NewServiceWithUpdate(check checkLikeFunc, store atomicPairStore, decide Dec
 	}
 }
 
+// Like сохраняет прежний способ вызова для ЛР № 2.
 func (s *Service) Like(actorID, targetID domain.UserID) (domain.LikeDecision, error) {
 	return s.LikeContext(context.Background(), actorID, targetID)
 }
 
+// LikeContext проверяет допуск и применяет лайк через подключённый Update.
 func (s *Service) LikeContext(
 	ctx context.Context,
 	actorID, targetID domain.UserID,
