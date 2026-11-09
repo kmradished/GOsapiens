@@ -2,6 +2,7 @@ package likehttp
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/kmradished/GOsapiens/internal/domain"
@@ -43,6 +44,7 @@ func NewGetPairHandler(
 
 		matched, err := readPair(actorID, targetID)
 		if err != nil {
+			slog.ErrorContext(r.Context(), "read pair failed", "request_id", w.Header().Get("X-Request-ID"), "error", err)
 			writeError(w, http.StatusInternalServerError, "internal_error",
 				"Could not read pair state")
 			return

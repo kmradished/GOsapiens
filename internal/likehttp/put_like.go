@@ -3,6 +3,7 @@ package likehttp
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/http"
 
@@ -43,6 +44,7 @@ func NewPutLikeHandler(
 
 		decision, err := like(r.Context(), actorID, targetID)
 		if err != nil {
+			slog.ErrorContext(r.Context(), "like failed", "request_id", w.Header().Get("X-Request-ID"), "error", err)
 			writePutLikeError(w, err, isDependencyError)
 			return
 		}

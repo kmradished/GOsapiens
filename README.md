@@ -7,6 +7,80 @@
 - Марго (`@kmradished`)
 - Арина (`@arina280607-cell`)
 
+## HTTP-приложение — ЛР3
+
+Нужен Go 1.22.2 или новее. Команды выполняются из корня репозитория.
+Приложение и Profile API запускаются в двух терминалах; публичные API не используются.
+
+Первый терминал — локальная зависимость:
+
+```bash
+go run ./cmd/profile-api
+```
+
+Второй терминал — приложение:
+
+```bash
+go run ./cmd/server
+```
+
+Приложение слушает `127.0.0.1:8080`, Profile API — `127.0.0.1:8081`.
+Проверка запуска: `curl -i http://127.0.0.1:8080/healthz`.
+Настройки адресов, бюджетов и лимитов описаны в [API-контракте](api-contract.md#конфигурация-и-ресурсы).
+Пример с другими адресами:
+
+```bash
+go run ./cmd/profile-api -addr 127.0.0.1:9091
+# В другом терминале:
+HTTP_ADDR=127.0.0.1:9090 PROFILE_URL=http://127.0.0.1:9091 go run ./cmd/server
+```
+
+Общие фикстуры находятся в `internal/demodata`:
+
+| ID | Состояние |
+| --- | --- |
+| `u1` | Текущий пользователь в примерах |
+| `u6`, `u2`, `u5`, `u4` | Активные кандидаты для `u1` в таком порядке |
+| `u3` | Неактивный профиль |
+| `u7` | Активный профиль, заблокировавший `u1` |
+
+У всех профилей есть фильм `Dune`. Поэтому для `u1` с `interest=Dune&limit=2`
+первая страница содержит `u6`, `u2`, вторая — `u5`, `u4`.
+Начальных Like, просмотров и дизлайков нет.
+
+| Маршрут | Use case и прежняя логика | Автор |
+| --- | --- | --- |
+| `PUT /v1/me/likes/{targetID}` | `LikeContext`: допуск из ЛР1, чистый `DecideLike` из ЛР2, атомарный `Update` | Арина; проверка допуска и HTTP-профили — Полина |
+| `GET /v1/me/pairs/{targetID}` | `PairMatched`: чтение сохранённой пары без записи | Арина |
+| `GET /v1/me/discovery` | `DiscoveryService.Discover`: правила `available`/`interests` из ЛР1, фильтр, страницы и актуальные Like | Даша |
+| Общая сборка | Один store для всех маршрутов, конфигурация, middleware, HTTP-сервер и его остановка | Марго |
+
+Сценарий запросов с ожидаемыми статусами и существенными полями:
+
+```bash
+bash scripts/lr3-demo.sh
+```
+
+Перед каждым повтором сценария перезапусти приложение, чтобы очистить пары.
+Скрипт сам возвращает Profile API в режим `ok`; переключение режима не очищает пары.
+Для других адресов: `APP_URL=http://127.0.0.1:9090 PROFILE_URL=http://127.0.0.1:9091 bash scripts/lr3-demo.sh`.
+
+Пары хранятся только в памяти одного процесса и теряются при перезапуске.
+Независимые процессы приложения не делят ни память, ни mutex.
+HTTP-команда использует `NewServiceWithUpdate`; прежний `NewService` с отдельными
+`Load`/`Save` остаётся для демонстраций и тестов ЛР2.
+Допуск Like теперь принимает context: `Check(ctx, actorID, targetID)`.
+
+`X-Demo-User` — учебная идентичность, которую клиент может подставить самостоятельно.
+Отсутствующий или неверный заголовок даёт `400`; предметные проверки остаются в приложении.
+Каждый ответ получает серверный `X-Request-ID`; журналы содержат этот ID, метод,
+путь, статус, длительность, а при ошибке — внутреннюю причину с тем же ID.
+
+Для остановки приложения нажми `Ctrl+C` в его терминале. Оно ждёт активные запросы
+до `SHUTDOWN_TIMEOUT`, затем принудительно закрывает соединения и сообщает об ошибке,
+если времени не хватило. Команда `go build -o /tmp/gosapiens-server ./cmd/server`
+создаёт отдельный бинарник для проверки `SIGTERM`: запускай его вместо `go run`.
+
 ## Структура проекта
 
 - `internal/domain` — общие типы предметной области
@@ -19,6 +93,10 @@
 - `internal/jsonpairs` — хранение состояния пар в JSON-байтах
 - `internal/storecontract` — общие контрактные тесты хранилищ пар
 - `internal/integration` — сквозной тест обработки лайков
+- `internal/demodata` — общие фикстуры приложения и Profile API
+- `internal/webserver` — настройки, middleware и остановка HTTP-сервера
+- `cmd/server` — сборка и запуск трёх бизнес-маршрутов
+- `cmd/profile-api` — отдельная локальная HTTP-зависимость
 - `cmd/demo` — демонстрационный запуск контрактов A и C
 - `cmd/available-demo` — демонстрационный запуск контракта B
 - `cmd/matching-demo` — демонстрационный запуск контракта D
@@ -215,8 +293,11 @@ go run ./cmd/matching-demo
 ## Тесты
 
 ```bash
+test -z "$(gofmt -l .)"
+go build ./...
 go test -count=1 ./...
 go vet ./...
+go test -race -count=1 ./...
 ```
 
 Отдельный запуск сквозного теста:
@@ -224,6 +305,29 @@ go vet ./...
 ```bash
 go test -count=1 ./internal/integration -run TestScenario -v
 ```
+
+Сквозной HTTP-сценарий, отказы зависимости и отмена клиентского запроса:
+
+```bash
+go test -count=1 ./cmd/server -run TestHTTP -v
+```
+
+Два application-сервиса на одном store: 64 одновременных Like с повторами и
+встречными реакциями дают две записи и ровно один `MatchedNow`:
+
+```bash
+go test -race -count=1 ./internal/integration -run TestConcurrentLikesAcrossServices -v
+```
+
+Ожидание активного запроса при Shutdown, принудительное закрытие после grace
+и задержанное тело запроса проверяются без Sleep, с каналами и watchdog:
+
+```bash
+go test -count=1 ./internal/webserver -run 'TestRunShutdown|TestServerLimitsDelayedRequestBody' -v
+```
+
+CI запускает форматирование, сборку, тесты, vet и race:
+[Go CI](https://github.com/kmradished/GOsapiens/actions/workflows/go.yml).
 
 ## ЛР2: допуск Like - Полина
 
@@ -245,7 +349,7 @@ go run ./cmd/profile-api
 ```
 
 `GET /profiles/u1` возвращает `{"id":"u1","active":true}`. Оба поля обязательны.
-Активные профили — `u1`, `u2`, `u4`, `u5`, `u6`. Профиль `u3` неактивен
+Активные профили — `u1`, `u2`, `u4`, `u5`, `u6`, `u7`. Профиль `u3` неактивен
 Неизвестный ID даёт 404
 
 Режим можно задать флагом `-mode` при запуске или переключить на работающем сервере:
@@ -267,10 +371,22 @@ curl -i -X PUT http://127.0.0.1:8081/_mode/ok
 Флаги сервера по умолчанию — `-addr 127.0.0.1:8081`, `-mode ok`,
 `-slow-delay 2s`, `-large-bytes 8192`
 
-При сборке приложения передайте в `profileapi.NewClient` настроенный base URL,
-общий `*http.Client` с таймаутом `600ms` и лимит `4096` байт
-Этот клиент можно передать в `likes.NewService` как источник профилей
-Передайте в `Check` контекст команды с общим бюджетом `700ms`
+В `cmd/server` в `profileapi.NewClient` передаются настроенный base URL,
+общий `*http.Client` с таймаутом `600ms` и лимит `4096` байт.
+Клиент используется в `likes.NewService` как источник профилей.
+`Check` получает контекст команды с общим бюджетом `700ms`.
 Ошибка `domain.ErrProfileNotFound` превращается в отказ `profile_not_found`
 Технические ошибки распознаются через `errors.Is(err, profileapi.ErrDependency)`
 Причина таймаута или отмены доступна через `errors.Is` и `errors.As`
+
+## Issue, PR и review — ЛР3
+
+| Участница | Issue | PR | Review |
+| --- | --- | --- | --- |
+| Полина | [#22](https://github.com/kmradished/GOsapiens/issues/22) | [#26](https://github.com/kmradished/GOsapiens/pull/26) | [Даша](https://github.com/kmradished/GOsapiens/pull/26#pullrequestreview-5830854295) |
+| Арина | [#23](https://github.com/kmradished/GOsapiens/issues/23) | [#21](https://github.com/kmradished/GOsapiens/pull/21) | [Полина](https://github.com/kmradished/GOsapiens/pull/21#pullrequestreview-5831806415) |
+| Даша | [#24](https://github.com/kmradished/GOsapiens/issues/24) | [#28](https://github.com/kmradished/GOsapiens/pull/28) | [Марго](https://github.com/kmradished/GOsapiens/pull/28#pullrequestreview-5827013696) |
+| Марго | [#25](https://github.com/kmradished/GOsapiens/issues/25) | [#27 — CI](https://github.com/kmradished/GOsapiens/pull/27), [#29 — store и HTTP-обвязка](https://github.com/kmradished/GOsapiens/pull/29) | [Арина](https://github.com/kmradished/GOsapiens/pull/29#pullrequestreview-5831473166) |
+
+При сдаче команда указывает точный commit итоговой сборки и ссылку на его
+успешный CI. Текущий commit можно узнать командой `git rev-parse HEAD`.
