@@ -36,6 +36,7 @@ func NewHTTPServer(cfg Config, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           handler,
+		ReadTimeout:       cfg.CommandTimeout,
 		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    16 * 1024,
