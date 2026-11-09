@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -135,7 +136,7 @@ func TestProfileServerModes(t *testing.T) {
 		{mode: "ok"},
 		{mode: "missing", want: domain.ErrProfileNotFound},
 		{mode: "error", want: profileapi.ErrDependency},
-		{mode: "slow", want: context.DeadlineExceeded},
+		{mode: "slow"},
 		{mode: "large", want: profileapi.ErrResponseTooLarge},
 		{mode: "ok"},
 	} {
@@ -153,10 +154,16 @@ func TestProfileServerModes(t *testing.T) {
 		}
 
 		profile, err := client.GetContext(context.Background(), "u1")
-		if !errors.Is(err, tc.want) {
+		if tc.mode == "slow" {
+			var timeoutErr net.Error
+			if !errors.As(err, &timeoutErr) || !timeoutErr.Timeout() ||
+				!errors.Is(err, profileapi.ErrDependency) {
+				t.Fatalf("slow: error = %v, want a dependency timeout", err)
+			}
+		} else if !errors.Is(err, tc.want) {
 			t.Fatalf("%s: error = %v, want %v", tc.mode, err, tc.want)
 		}
-		if tc.want == nil && (profile.ID != "u1" || !profile.Active) {
+		if err == nil && (profile.ID != "u1" || !profile.Active) {
 			t.Fatalf("%s: unexpected profile %+v", tc.mode, profile)
 		}
 		if tc.mode == "error" && !strings.Contains(err.Error(), "500") {
