@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -27,7 +28,8 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	}
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse database config: %w", err)
+		// Ошибка pgx может содержать секреты из строки подключения.
+		return nil, errors.New("invalid DATABASE_URL")
 	}
 	cfg.MaxConns = 8
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
