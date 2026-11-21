@@ -52,6 +52,17 @@ TEST_DATABASE_URL="$DATABASE_URL" go test -tags=dbintegration -count=1 ./interna
 подтверждается через pg_blocking_pids. CI запускает эту команду с сервисом БД.
 Проверки бизнес-команд добавляют их авторы по контракту.
 
+### Профиль с проверкой версии
+
+Задача Полины [#33](https://github.com/kmradished/GOsapiens/issues/33).
+Маршруты GET и PUT `/v1/profiles/{profileID}` регистрирует `profilehttp.NewHandler`.
+Общая сборка подключит обработчик через действующий middleware `X-Demo-User`.
+
+```bash
+go test ./internal/profilehttp
+TEST_DATABASE_URL="$DATABASE_URL" go test -race -tags=dbintegration -count=1 ./internal/postgres -run 'Profile'
+```
+
 ## HTTP-приложение — ЛР3
 
 Нужен Go 1.24.0 или новее. Команды выполняются из корня репозитория.
