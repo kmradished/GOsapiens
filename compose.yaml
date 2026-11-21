@@ -1,0 +1,19 @@
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: gosapiens
+      POSTGRES_PASSWORD: gosapiens
+      POSTGRES_DB: gosapiens
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gosapiens -d gosapiens"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:
