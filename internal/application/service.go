@@ -37,10 +37,11 @@ type updatePairFunc func(
 ) (domain.LikeDecision, error)
 
 type Service struct {
-	check  checkLikeFunc
-	store  pairReader
-	update updatePairFunc
-	decide DecideLikeFunc
+	check     checkLikeFunc
+	store     pairReader
+	update    updatePairFunc
+	decide    DecideLikeFunc
+	likeStore LikeStore
 }
 
 // NewService сохраняет поддержку хранилищ ЛР № 2 с отдельными Load и Save.
@@ -78,7 +79,7 @@ func NewService(checker LikeChecker, store PairStore, decide DecideLikeFunc) *Se
 	}
 }
 
-// NewServiceWithUpdate подключает проверку с контекстом и атомарное обновление.
+// NewServiceWithUpdate подключает атомарное обновление memory-хранилища.
 func NewServiceWithUpdate(check checkLikeFunc, store atomicPairStore, decide DecideLikeFunc) *Service {
 	return &Service{
 		check:  check,
@@ -88,12 +89,20 @@ func NewServiceWithUpdate(check checkLikeFunc, store atomicPairStore, decide Dec
 	}
 }
 
+// NewServiceWithLikeStore подключает операции хранилища ЛР № 4.
+func NewServiceWithLikeStore(check checkLikeFunc, store LikeStore) *Service {
+	return &Service{
+		check:     check,
+		likeStore: store,
+	}
+}
+
 // Like сохраняет прежний способ вызова для ЛР № 2.
 func (s *Service) Like(actorID, targetID domain.UserID) (domain.LikeDecision, error) {
 	return s.LikeContext(context.Background(), actorID, targetID)
 }
 
-// LikeContext проверяет допуск и применяет лайк через подключённый Update.
+// LikeContext проверяет профили, затем выполняет операцию хранилища.
 func (s *Service) LikeContext(
 	ctx context.Context,
 	actorID, targetID domain.UserID,
@@ -109,6 +118,14 @@ func (s *Service) LikeContext(
 	key, err := domain.NewPairKey(actorID, targetID)
 	if err != nil {
 		return domain.LikeDecision{}, fmt.Errorf("create pair key: %w", err)
+	}
+
+	if s.likeStore != nil {
+		decision, err := s.likeStore.Like(ctx, actorID, targetID)
+		if err != nil {
+			return domain.LikeDecision{}, fmt.Errorf("persist like: %w", err)
+		}
+		return decision, nil
 	}
 
 	decision, err := s.update(key, func(state domain.PairState) (domain.LikeDecision, error) {

@@ -1,6 +1,7 @@
 package likehttp
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -18,8 +19,24 @@ type errorResponse struct {
 	Message string `json:"message"`
 }
 
+// NewGetPairHandler сохраняет поддержку обработчиков чтения ЛР № 3.
 func NewGetPairHandler(
 	readPair func(actorID, targetID domain.UserID) (bool, error),
+	currentUser func(*http.Request) (domain.UserID, bool),
+	validID func(domain.UserID) bool,
+) http.HandlerFunc {
+	return NewGetPairHandlerContext(
+		func(_ context.Context, actorID, targetID domain.UserID) (bool, error) {
+			return readPair(actorID, targetID)
+		},
+		currentUser,
+		validID,
+	)
+}
+
+// NewGetPairHandlerContext передаёт контекст запроса в чтение БД.
+func NewGetPairHandlerContext(
+	readPair func(context.Context, domain.UserID, domain.UserID) (bool, error),
 	currentUser func(*http.Request) (domain.UserID, bool),
 	validID func(domain.UserID) bool,
 ) http.HandlerFunc {
@@ -42,9 +59,13 @@ func NewGetPairHandler(
 			return
 		}
 
-		matched, err := readPair(actorID, targetID)
+		matched, err := readPair(r.Context(), actorID, targetID)
 		if err != nil {
-			slog.ErrorContext(r.Context(), "read pair failed", "request_id", w.Header().Get("X-Request-ID"), "error", err)
+			slog.ErrorContext(r.Context(), "read pair failed",
+				"request_id", w.Header().Get("X-Request-ID"), "error", err)
+			if writeDatabaseError(w, err) {
+				return
+			}
 			writeError(w, http.StatusInternalServerError, "internal_error",
 				"Could not read pair state")
 			return
