@@ -21,7 +21,14 @@ func NewHTTPClient(cfg Config) *http.Client {
 
 // NewHandler получает готовые бизнес-обработчики, не создавая их зависимости.
 func NewHandler(cfg Config, logger *slog.Logger, putLike, getPair, getDiscovery http.Handler) http.Handler {
+	return NewHandlerWithBlock(cfg, logger, putLike, getPair, getDiscovery, nil)
+}
+
+func NewHandlerWithBlock(cfg Config, logger *slog.Logger, putLike, getPair, getDiscovery, putBlock http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	if putBlock != nil {
+		mux.Handle("PUT /v1/me/blocks/{targetID}", demoUser(withBudget(cfg.CommandTimeout, putBlock)))
+	}
 	mux.Handle("PUT /v1/me/likes/{targetID}", demoUser(withBudget(cfg.CommandTimeout, putLike)))
 	mux.Handle("GET /v1/me/pairs/{targetID}", demoUser(withBudget(cfg.CommandTimeout, getPair)))
 	mux.Handle("GET /v1/me/discovery", demoUser(withBudget(cfg.CommandTimeout, getDiscovery)))
