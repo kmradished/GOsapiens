@@ -1,6 +1,7 @@
 package discoveryhttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -35,6 +36,12 @@ type errorResponse struct {
 
 // NewGetDiscoveryHandler используется  для создания обработчика HTTP-запросов для получения списка кандидатов для пользователя в сервисе "discovery"
 func NewGetDiscoveryHandler(discover func(domain.UserID, application.DiscoveryQuery) ([]interests.AnonymousCard, error), currentUser func(*http.Request) (domain.UserID, bool)) http.HandlerFunc {
+	return NewGetDiscoveryContextHandler(func(_ context.Context, actorID domain.UserID, query application.DiscoveryQuery) ([]interests.AnonymousCard, error) {
+		return discover(actorID, query)
+	}, currentUser)
+}
+
+func NewGetDiscoveryContextHandler(discover func(context.Context, domain.UserID, application.DiscoveryQuery) ([]interests.AnonymousCard, error), currentUser func(*http.Request) (domain.UserID, bool)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actorID, ok := currentUser(r)
 		if !ok || actorID == "" {
@@ -51,14 +58,21 @@ func NewGetDiscoveryHandler(discover func(domain.UserID, application.DiscoveryQu
 			return
 		}
 
-		cards, err := discover(actorID, query)
+		cards, err := discover(r.Context(), actorID, query)
 		if errors.Is(err, domain.ErrProfileNotFound) {
 			writeError(w, http.StatusNotFound, "profile_not_found", "Profile not found")
 			return
 		}
 		if err != nil {
 			slog.ErrorContext(r.Context(), "discovery failed", "request_id", w.Header().Get("X-Request-ID"), "error", err)
-			writeError(w, http.StatusInternalServerError, "internal_error", "Could not discover candidates")
+			switch {
+			case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+				writeError(w, http.StatusGatewayTimeout, "database_timeout", "Database operation timed out")
+			case errors.Is(err, domain.ErrTransactionRetryable):
+				writeError(w, http.StatusServiceUnavailable, "transaction_retryable", "Repeat the discovery request")
+			default:
+				writeError(w, http.StatusInternalServerError, "internal_error", "Could not discover candidates")
+			}
 			return
 		}
 
