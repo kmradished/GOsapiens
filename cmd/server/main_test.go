@@ -14,8 +14,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kmradished/GOsapiens/internal/application"
 	"github.com/kmradished/GOsapiens/internal/demodata"
+	"github.com/kmradished/GOsapiens/internal/discovery/available"
+	"github.com/kmradished/GOsapiens/internal/discoveryhttp"
 	"github.com/kmradished/GOsapiens/internal/domain"
+	"github.com/kmradished/GOsapiens/internal/likehttp"
+	"github.com/kmradished/GOsapiens/internal/likes"
+	"github.com/kmradished/GOsapiens/internal/matching"
 	"github.com/kmradished/GOsapiens/internal/memory"
 	"github.com/kmradished/GOsapiens/internal/profileapi"
 	"github.com/kmradished/GOsapiens/internal/webserver"
@@ -43,7 +49,7 @@ func newTestApp(t *testing.T, profileHandler http.Handler) testApp {
 	}
 	pairs := memory.NewPairStore()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newHandler(cfg, logger, profiles, pairs)
+	handler := newMemoryHandler(cfg, logger, profiles, pairs)
 	server := httptest.NewUnstartedServer(handler)
 	server.Config = webserver.NewHTTPServer(cfg, handler)
 	server.Start()
@@ -268,4 +274,22 @@ func TestHTTPClientCancellationStopsProfileRequest(t *testing.T) {
 	if app.pairs.Writes() != 0 {
 		t.Fatalf("canceled request saved a pair: writes = %d", app.pairs.Writes())
 	}
+}
+
+func newMemoryHandler(cfg webserver.Config, logger *slog.Logger, profiles likes.ProfileSource, pairs *memory.PairStore) http.Handler {
+	blocks := demodata.Blocks()
+	checker := likes.NewService(profiles, memory.NewLikeState(blocks, nil))
+	like := application.NewServiceWithUpdate(checker.Check, pairs, matching.DecideLike)
+	discovery := application.NewDiscoveryService(
+		memory.NewProfiles(demodata.Profiles()),
+		available.NewMemoryExclusions(blocks, nil, nil),
+		pairs,
+	)
+	putLike := likehttp.NewPutLikeHandler(
+		like.LikeContext, webserver.CurrentUser, webserver.ValidID,
+		func(err error) bool { return errors.Is(err, profileapi.ErrDependency) },
+	)
+	getPair := likehttp.NewGetPairHandler(like.PairMatched, webserver.CurrentUser, webserver.ValidID)
+	getDiscovery := discoveryhttp.NewGetDiscoveryHandler(discovery.Discover, webserver.CurrentUser)
+	return webserver.NewHandler(cfg, logger, putLike, getPair, getDiscovery)
 }
