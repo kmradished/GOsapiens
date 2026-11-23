@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"fmt"
 	"slices"
 
@@ -33,6 +34,11 @@ type DiscoveryService struct {
 	profiles   interests.ProfileSource
 	exclusions available.ExclusionSource
 	likes      LikedIDsReader
+	store      DiscoveryStore
+}
+
+func NewDiscoveryServiceWithStore(store DiscoveryStore, exclusions available.ExclusionSource) *DiscoveryService {
+	return &DiscoveryService{store: store, exclusions: exclusions}
 }
 
 func NewDiscoveryService(profiles interests.ProfileSource, exclusions available.ExclusionSource, likes LikedIDsReader) *DiscoveryService {
@@ -41,8 +47,15 @@ func NewDiscoveryService(profiles interests.ProfileSource, exclusions available.
 
 // Discover возвращает список кандидатов для данного пользователя на основе его интересов и исключений
 func (s *DiscoveryService) Discover(actorID domain.UserID, query DiscoveryQuery) ([]interests.AnonymousCard, error) {
+	return s.DiscoverContext(context.Background(), actorID, query)
+}
+
+func (s *DiscoveryService) DiscoverContext(ctx context.Context, actorID domain.UserID, query DiscoveryQuery) ([]interests.AnonymousCard, error) {
 	if !query.ValidPage() {
 		return nil, fmt.Errorf("invalid discovery pagination: limit=%d offset=%d", query.Limit, query.Offset)
+	}
+	if s.store != nil {
+		return s.discoverFromStore(ctx, actorID, query)
 	}
 	current, err := s.profiles.Get(actorID)
 	if err != nil {
@@ -70,6 +83,49 @@ func (s *DiscoveryService) Discover(actorID domain.UserID, query DiscoveryQuery)
 	}
 
 	allReactions := append(slices.Clip(reacted), liked...)
+	return discoveryPage(actorID, current, profiles, blocked, viewed, allReactions, query), nil
+}
+
+func (s *DiscoveryService) discoverFromStore(ctx context.Context, actorID domain.UserID, query DiscoveryQuery) ([]interests.AnonymousCard, error) {
+	profiles, err := s.store.Profiles(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list discovery profiles: %w", err)
+	}
+	var current domain.Profile
+	found := false
+	for _, profile := range profiles {
+		if profile.ID == actorID {
+			current, found = profile, true
+			break
+		}
+	}
+	if !found {
+		return nil, domain.ErrProfileNotFound
+	}
+	blocked, err := s.store.BlockedIDs(ctx, actorID)
+	if err != nil {
+		return nil, fmt.Errorf("get discovery blocks: %w", err)
+	}
+	liked, err := s.store.LikedIDs(ctx, actorID)
+	if err != nil {
+		return nil, fmt.Errorf("get discovery likes: %w", err)
+	}
+	var viewed, reacted []domain.UserID
+	if s.exclusions != nil {
+		viewed, err = s.exclusions.ViewedIDs(actorID)
+		if err != nil {
+			return nil, fmt.Errorf("get discovery views: %w", err)
+		}
+		reacted, err = s.exclusions.ReactedIDs(actorID)
+		if err != nil {
+			return nil, fmt.Errorf("get discovery reactions: %w", err)
+		}
+	}
+	allReactions := append(slices.Clip(reacted), liked...)
+	return discoveryPage(actorID, current, profiles, blocked, viewed, allReactions, query), nil
+}
+
+func discoveryPage(actorID domain.UserID, current domain.Profile, profiles []domain.Profile, blocked, viewed, allReactions []domain.UserID, query DiscoveryQuery) []interests.AnonymousCard {
 	eligible := available.FilterCandidates(actorID, profiles, blocked, viewed, allReactions)
 	eligibleIDs := make(map[domain.UserID]struct{}, len(eligible))
 	for _, candidate := range eligible {
@@ -91,8 +147,8 @@ func (s *DiscoveryService) Discover(actorID domain.UserID, query DiscoveryQuery)
 		})
 	}
 	if query.Offset >= len(cards) {
-		return []interests.AnonymousCard{}, nil
+		return []interests.AnonymousCard{}
 	}
 	end := query.Offset + min(query.Limit, len(cards)-query.Offset)
-	return cards[query.Offset:end], nil
+	return cards[query.Offset:end]
 }
