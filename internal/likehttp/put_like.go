@@ -44,7 +44,8 @@ func NewPutLikeHandler(
 
 		decision, err := like(r.Context(), actorID, targetID)
 		if err != nil {
-			slog.ErrorContext(r.Context(), "like failed", "request_id", w.Header().Get("X-Request-ID"), "error", err)
+			slog.ErrorContext(r.Context(), "like failed",
+				"request_id", w.Header().Get("X-Request-ID"), "error", err)
 			writePutLikeError(w, err, isDependencyError)
 			return
 		}
@@ -81,6 +82,15 @@ func writePutLikeError(w http.ResponseWriter, err error, isDependencyError func(
 		}
 	}
 
+	if errors.Is(err, domain.ErrBlocked) {
+		writeError(w, http.StatusForbidden, "blocked", "Like is blocked")
+		return
+	}
+	if errors.Is(err, domain.ErrInvalidPair) {
+		writeError(w, http.StatusBadRequest, "invalid_id", "Invalid pair")
+		return
+	}
+
 	if isDependencyError(err) {
 		var networkErr net.Error
 		if errors.Is(err, context.DeadlineExceeded) ||
@@ -92,6 +102,10 @@ func writePutLikeError(w http.ResponseWriter, err error, isDependencyError func(
 
 		writeError(w, http.StatusBadGateway, "dependency_unavailable",
 			"Profile service is unavailable")
+		return
+	}
+
+	if writeDatabaseError(w, err) {
 		return
 	}
 
