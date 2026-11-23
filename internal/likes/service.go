@@ -24,7 +24,7 @@ type Service struct {
 	interactions InteractionSource
 }
 
-// создание сервиса с готовыми хранилищами
+// Если interactions == nil, блокировку проверяет транзакция записи лайка.
 func NewService(
 	profiles ProfileSource,
 	interactions InteractionSource,
@@ -60,7 +60,7 @@ func (s *Service) Check(ctx context.Context, userID, candidateID domain.UserID) 
 	}
 
 	result := Check(user, candidate, false, false)
-	if !result.Allowed {
+	if !result.Allowed || s.interactions == nil {
 		return result, nil
 	}
 

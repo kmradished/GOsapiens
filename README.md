@@ -7,13 +7,13 @@
 - Марго (`@kmradished`)
 - Арина (`@arina280607-cell`)
 
-## Подготовка ЛР4
+## PostgreSQL для ЛР4
 
 Общие договорённости команды: [контракт ЛР4](lr4-contract.md).
 Исходная сборка ЛР3 — commit `efe8ce6921ef0fd721497a1af3c922e1c0359d56`.
-Каркас добавляет PostgreSQL, миграцию, фикстуры, интерфейсы операций и общий
-захват пары. Бизнес-методы ЛР4 пока не реализованы; `cmd/server` продолжает
-использовать memory. Его подключение к PostgreSQL выполняется при интеграции.
+Сервер `cmd/server` использует PostgreSQL для лайков, мэтчей, блокировок, профилей
+и выдачи кандидатов. Profile API проверяет наличие и активность профилей перед
+записью лайка.
 
 Для ЛР4 нужны Go 1.24.0 или новее и Docker Compose. Версия Go и pgx совпадают
 с примером Lab04 преподавателя. ORM и библиотека миграций не используются.
@@ -56,14 +56,14 @@ TEST_DATABASE_URL="$DATABASE_URL" go test -tags=dbintegration -count=1 ./interna
 
 Задача Полины [#33](https://github.com/kmradished/GOsapiens/issues/33).
 Маршруты GET и PUT `/v1/profiles/{profileID}` регистрирует `profilehttp.NewHandler`.
-Общая сборка подключит обработчик через действующий middleware `X-Demo-User`.
+Общая сборка использует действующий middleware `X-Demo-User`.
 
 ```bash
 go test ./internal/profilehttp
 TEST_DATABASE_URL="$DATABASE_URL" go test -race -tags=dbintegration -count=1 ./internal/postgres -run 'Profile'
 ```
 
-## HTTP-приложение — ЛР3
+## HTTP-приложение — ЛР4
 
 Нужен Go 1.24.0 или новее. Команды выполняются из корня репозитория.
 Приложение и Profile API запускаются в двух терминалах; публичные API не используются.
@@ -74,7 +74,7 @@ TEST_DATABASE_URL="$DATABASE_URL" go test -race -tags=dbintegration -count=1 ./i
 go run ./cmd/profile-api
 ```
 
-Второй терминал — приложение:
+Во втором терминале задай `DATABASE_URL`, как указано выше, и запусти приложение:
 
 ```bash
 go run ./cmd/server
@@ -91,7 +91,7 @@ go run ./cmd/profile-api -addr 127.0.0.1:9091
 HTTP_ADDR=127.0.0.1:9090 PROFILE_URL=http://127.0.0.1:9091 go run ./cmd/server
 ```
 
-Общие фикстуры находятся в `internal/demodata`:
+Фикстуры PostgreSQL находятся в `sql/reset.sql`, фикстуры Profile API — в `internal/demodata`:
 
 | ID | Состояние |
 | --- | --- |
@@ -102,13 +102,16 @@ HTTP_ADDR=127.0.0.1:9090 PROFILE_URL=http://127.0.0.1:9091 go run ./cmd/server
 
 У всех профилей есть фильм `Dune`. Поэтому для `u1` с `interest=Dune&limit=2`
 первая страница содержит `u6`, `u2`, вторая — `u5`, `u4`.
-Начальных Like, просмотров и дизлайков нет.
+У `u1` на старте нет исходящих лайков, просмотров и дизлайков.
 
 | Маршрут | Use case и прежняя логика | Автор |
 | --- | --- | --- |
-| `PUT /v1/me/likes/{targetID}` | `LikeContext`: допуск из ЛР1, чистый `DecideLike` из ЛР2, атомарный `Update` | Арина; проверка допуска и HTTP-профили — Полина |
+| `PUT /v1/me/likes/{targetID}` | `LikeContext`: допуск из ЛР1, чистый `DecideLike` из ЛР2, транзакция PostgreSQL | Арина; проверка допуска и HTTP-профили — Полина |
 | `GET /v1/me/pairs/{targetID}` | `PairMatched`: чтение сохранённой пары без записи | Арина |
 | `GET /v1/me/discovery` | `DiscoveryService.Discover`: правила `available`/`interests` из ЛР1, фильтр, страницы и актуальные Like | Даша |
+| `DELETE /v1/me/likes/{targetID}` | Отзыв собственного лайка и деактивация мэтча | Марго |
+| `PUT /v1/me/blocks/{targetID}` | Блокировка и деактивация мэтча | Даша |
+| `GET /v1/profiles/{profileID}`, `PUT /v1/profiles/{profileID}` | Чтение и изменение своего профиля с проверкой версии | Полина |
 | Общая сборка | Один store для всех маршрутов, конфигурация, middleware, HTTP-сервер и его остановка | Марго |
 
 Сценарий запросов с ожидаемыми статусами и существенными полями:
@@ -117,15 +120,13 @@ HTTP_ADDR=127.0.0.1:9090 PROFILE_URL=http://127.0.0.1:9091 go run ./cmd/server
 bash scripts/lr3-demo.sh
 ```
 
-Перед каждым повтором сценария перезапусти приложение, чтобы очистить пары.
+Перед каждым повтором сценария восстанови учебные данные командой `bash scripts/db.sh reset`.
 Скрипт сам возвращает Profile API в режим `ok`; переключение режима не очищает пары.
 Для других адресов: `APP_URL=http://127.0.0.1:9090 PROFILE_URL=http://127.0.0.1:9091 bash scripts/lr3-demo.sh`.
 
-Пары хранятся только в памяти одного процесса и теряются при перезапуске.
-Независимые процессы приложения не делят ни память, ни mutex.
-HTTP-команда использует `NewServiceWithUpdate`; прежний `NewService` с отдельными
-`Load`/`Save` остаётся для демонстраций и тестов ЛР2.
-Допуск Like теперь принимает context: `Check(ctx, actorID, targetID)`.
+Пары сохраняются в PostgreSQL после перезапуска. Несколько экземпляров приложения
+могут работать с одной БД. Хранилище в памяти используется в прежних демонстрациях
+и тестах.
 
 `X-Demo-User` — учебная идентичность, которую клиент может подставить самостоятельно.
 Отсутствующий или неверный заголовок даёт `400`; предметные проверки остаются в приложении.
@@ -151,7 +152,8 @@ HTTP-команда использует `NewServiceWithUpdate`; прежний 
 - `internal/integration` — сквозной тест обработки лайков
 - `internal/demodata` — общие фикстуры приложения и Profile API
 - `internal/webserver` — настройки, middleware и остановка HTTP-сервера
-- `cmd/server` — сборка и запуск трёх бизнес-маршрутов
+- `internal/postgres` — операции хранилища ЛР4
+- `cmd/server` — сборка и запуск HTTP-приложения
 - `cmd/profile-api` — отдельная локальная HTTP-зависимость
 - `cmd/demo` — демонстрационный запуск контрактов A и C
 - `cmd/available-demo` — демонстрационный запуск контракта B

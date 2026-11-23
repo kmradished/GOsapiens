@@ -25,13 +25,21 @@ func NewHandler(cfg Config, logger *slog.Logger, putLike, getPair, getDiscovery 
 }
 
 func NewHandlerWithBlock(cfg Config, logger *slog.Logger, putLike, getPair, getDiscovery, putBlock http.Handler) http.Handler {
+	return NewHandlerWithRoutes(cfg, logger, map[string]http.Handler{
+		"PUT /v1/me/likes/{targetID}":  putLike,
+		"GET /v1/me/pairs/{targetID}":  getPair,
+		"GET /v1/me/discovery":         getDiscovery,
+		"PUT /v1/me/blocks/{targetID}": putBlock,
+	})
+}
+
+func NewHandlerWithRoutes(cfg Config, logger *slog.Logger, routes map[string]http.Handler) http.Handler {
 	mux := http.NewServeMux()
-	if putBlock != nil {
-		mux.Handle("PUT /v1/me/blocks/{targetID}", demoUser(withBudget(cfg.CommandTimeout, putBlock)))
+	for pattern, handler := range routes {
+		if handler != nil {
+			mux.Handle(pattern, demoUser(withBudget(cfg.CommandTimeout, handler)))
+		}
 	}
-	mux.Handle("PUT /v1/me/likes/{targetID}", demoUser(withBudget(cfg.CommandTimeout, putLike)))
-	mux.Handle("GET /v1/me/pairs/{targetID}", demoUser(withBudget(cfg.CommandTimeout, getPair)))
-	mux.Handle("GET /v1/me/discovery", demoUser(withBudget(cfg.CommandTimeout, getDiscovery)))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
