@@ -1,4 +1,4 @@
-//go:build dbintegration && likeintegration
+//go:build dbintegration
 
 package postgres
 
